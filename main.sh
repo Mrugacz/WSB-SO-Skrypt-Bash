@@ -9,9 +9,6 @@ YELLOW="\e[33m"
 NOCOLOR="\e[0m"
 BOLD="\e[1m"
 
-# Prompt w selekcie
-PS3="> "
-
 # wystarczyloby zwykle echo ale, ze napisalem to pod inne skrypty to nie bede sie ograniczal
 # msg -l (info/warning/error/success/note) -m 'message'
 msg() {
@@ -148,6 +145,31 @@ list_users_in_group() {
 
 # ──────────────────────────────────────────────────────────────────────
 
+set_static_ip() {
+	local interface=$1
+	local ip=$2
+	local mask=$3
+	local gateway=$4
+	local dns=$5
+
+	if [ -z "$ip" ] || [ -z "$mask" ] || [ -z "$gateway" ] || [ -z "$dns" ]; then
+		msg -l e -m "Wszystkie parametry są wymagane"
+		menu_network_config
+	fi
+
+	ip addr add "$ip"/"$mask" dev "$interface"
+	ip route add default via "$gateway"
+	echo "nameserver $dns" >/etc/resolv.conf
+	msg -l i -m "Ustawiono statyczne IP dla interfejsu $interface"
+}
+
+set_dhcp_ip() {
+	local interface=$1
+
+	dhclient "$interface"
+	msg -l i -m "Ustawiono dynamiczne IP dla interfejsu $interface"
+}
+
 # ── Grupa 3 [5pkt] ────────────────────────────────────────────────────
 
 #  Zad1.      Przeniesie pliki z katalogu X do katalogu XX. Ale tylko te, które pasują do podanego wzorca. Dodatkowo zliczy ilości wystąpień i stosowny komunikat informujący o tym. Stwórz 3 wzorce.
@@ -188,8 +210,15 @@ list_users_in_group() {
 
 # ── menu ──────────────────────────────────────────────────────────────
 
+# Prompt w selekcie
+PS3=$(
+	echo -ne "\n"
+	separator
+	echo "> "
+)
 menu() {
 	titlebar "Menu"
+	COLUMNS=1
 
 	select option in "Użytkownicy" "Sieć" "Pliki" "Baza danych" "Wyjście"; do
 		case $option in
@@ -220,11 +249,17 @@ menu() {
 }
 
 return_menu() {
+	echo
+	separator
 	read -p "Naciśnij dowolny klawisz aby wrócić do menu..."
 	menu
 }
 
+# ── uzytkownicy ───────────────────────────────────────────────────────
+
 menu_users() {
+	COLUMNS=1
+
 	select option in "Utwórz użytkowników" "Lista użytkowników" "Lista grup" "Lista użytkowników w grupie" "Powrót"; do
 		case $option in
 		"Utwórz użytkowników")
@@ -247,6 +282,100 @@ menu_users() {
 			;;
 		"Powrót")
 			menu
+			;;
+		*)
+			msg -l e -m "Opcja nie istnieje"
+			;;
+		esac
+	done
+}
+
+# ── siec ──────────────────────────────────────────────────────────────
+
+menu_network() {
+	COLUMNS=1
+
+	select option in "Konfiguracja Sieci" "Narzędzia sieciowe" "Informacje o sieci" "Powrót"; do
+		case $option in
+		"Konfiguracja Sieci")
+			titlebar "Konfiguracja Sieci"
+			menu_network_config
+			;;
+		"Narzędzia sieciowe")
+			titlebar "Narzędzia sieciowe"
+			menu_network_tools
+			;;
+		"Informacje o sieci")
+			titlebar "Informacje o sieci"
+			ip a s
+			return_menu
+			;;
+		"Powrót")
+			menu
+			;;
+		*)
+			msg -l e -m "Opcja nie istnieje"
+			;;
+		esac
+	done
+}
+
+menu_network_config() {
+	COLUMNS=1
+
+	select option in "Ustaw IP statyczne" "Ustaw IP dynamiczne" "Powrót"; do
+		case $option in
+		"Ustaw IP statyczne")
+			select interface in $(ip link show | awk -F: '$0 !~ "lo|vir|wl|^[^0-9]" { print $2 }'); do
+				read -p "Podaj IP: " ip
+				read -p "Podaj maskę: " mask
+				read -p "Podaj bramę: " gateway
+				read -p "Podaj DNS: " dns
+				set_static_ip "$interface" "$ip" "$mask" "$gateway" "$dns"
+				return_menu
+			done
+			;;
+		"Ustaw IP dynamiczne")
+			select interface in $(ip link show | awk -F: '$0 !~ "lo|vir|wl|^[^0-9]" { print $2 }'); do
+				set_dhcp_ip "$interface"
+				return_menu
+			done
+			;;
+		"Powrót")
+			menu_network
+			;;
+		*)
+			msg -l e -m "Opcja nie istnieje"
+			;;
+		esac
+	done
+}
+
+menu_network_tools() {
+	COLUMNS=1
+
+	select option in "Ping" "Traceroute" "UFW" "Netstat" "Powrót"; do
+		case $option in
+		"Ping")
+			read -p "Podaj adres docelowy(IP/domena): " ip
+			ping -c 4 "$ip"
+			return_menu
+			;;
+		"Traceroute")
+			read -p "Podaj adres docelowy(IP/domena): " ip
+			traceroute "$ip"
+			return_menu
+			;;
+		"UFW")
+			ufw status
+			return_menu
+			;;
+		"Netstat")
+			netstat -tulpn
+			return_menu
+			;;
+		"Powrót")
+			menu_network
 			;;
 		*)
 			msg -l e -m "Opcja nie istnieje"
